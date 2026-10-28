@@ -5,8 +5,10 @@
 observedNamespace: odg-system
 
 # Annotation gate: only pods with this pod-annotation = "true" emit logs.
-# Set to "" to ship ALL logs in observedNamespace (dev mode).
-annotationKey: otel.io/pod-logs
+# Empty string disables the gate; all logs in observedNamespace ship except the
+# always-on excludes hardcoded in templates/collector-config.yaml (filter/exclude_noisy:
+# currently delivery-dashboard and delivery-db, which are high-volume and boring).
+annotationKey: ""
 
 # Host metrics (node cpu/mem utilization, 30s) and the prometheus scrape endpoint
 # on :8889 (metrics-operator gauges + hostmetrics) are always on — cheap, and more
@@ -80,12 +82,14 @@ opentelemetry-collector:
   # The sub-chart hashes the chart's own config, but we mount `telemetry-override` via
   # configmaps.create=false. Hash the override content ourselves so pods roll when it
   # changes (backend switch, observedNamespace, annotationKey, ...).
-  # no fullnameOverride: resources are named "<release>-opentelemetry-collector"
-  # consistently (service + daemonset + filelog self-exclusion glob all derive
-  # from the same subchart helper)
+  # pin chartnames via fullnameOverride: with odg-core's `helm template` (no release
+  # name) .Release.Name is the placeholder "release-name", which leaks into all
+  # subcharts' names. `fullnameOverride` bypasses the <release>-<chart> assembly,
+  # so all subchart resources get stable names.
+  fullnameOverride: telemetry-opentelemetry-collector
   image:
     repository: otel/opentelemetry-collector-contrib
-    tag: 0.163.2@sha256:7f22d2a6748110ffb6a59bc0df448bccbf501cdb667d610ede4c61d3863d5849
+    tag: 0.163.2
   service:
     enabled: true                    # ClusterIP for OTLP :4317 even in daemonset mode
   ports:
@@ -163,9 +167,11 @@ opentelemetry-collector:
 # those first. When bumping the metrics-operator version, re-copy crds/.
 metrics-operator:
   enabled: true
+  # see comment on opentelemetry-collector.fullnameOverride above
+  fullnameOverride: telemetry-metrics-operator
   image:
     repository: ghcr.io/openmcp-project/images/metrics-operator
-    tag: v1.2.1@sha256:5607bd49f3bdc28a90663794b12e95c39d3a036c48f5a72fe9e201150a3b7275
+    tag: v1.2.1
   metrics:
     service:
       enabled: true

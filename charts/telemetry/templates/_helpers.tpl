@@ -16,6 +16,19 @@ Subchart fullname = "<release>-opentelemetry-collector" (nameOverride unset,
 no fullnameOverride). Exported via service.enabled=true. Everything that needs
 to reach the collector (DataSink, docs) should use this, not a hardcoded name.
 */}}
+{{/*
+Service name of the otel collector subchart. Use the pinned fullnameOverride so the
+DataSink endpoint survives odg-core's release-name-free `helm template`.
+*/}}
 {{- define "telemetry.collectorServiceName" -}}
-{{- printf "%s-opentelemetry-collector" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- index .Values "opentelemetry-collector" "fullnameOverride" -}}
+{{- end }}
+
+{{/*
+DaemonSet pod-name prefix used by receiver filelog.exclude in collector-config.yaml.
+Matches the subchart's pods under our values.yaml `fullnameOverride`, independent of
+helm's release name (odg-core renders `helm template` with none).
+*/}}
+{{- define "telemetry.collectorDaemonSetPrefix" -}}
+{{- printf "%s-agent-" (index .Values "opentelemetry-collector" "fullnameOverride") | trunc 63 | trimSuffix "-" -}}
 {{- end }}

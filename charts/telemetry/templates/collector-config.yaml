@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "opentelemetry-collector.fullname" . }}-override
+  name: telemetry-override
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "opentelemetry-collector.labels" . | nindent 4 }}
@@ -19,7 +19,7 @@ data:
       filelog:
         # keep self-observation quiet: don't ship the collector's own logs
         exclude:
-          - /var/log/pods/{{ .Values.observedNamespace }}_{{ include "opentelemetry-collector.fullname" . }}-agent-*/*/*.log
+          - /var/log/pods/{{ .Values.observedNamespace }}_{{ include "telemetry.collectorDaemonSetPrefix" . }}*/*/*.log
         include:
           - /var/log/pods/{{ .Values.observedNamespace }}_*/*/*.log
         start_at: end
@@ -74,6 +74,23 @@ data:
           log_record:
             - 'resource.attributes["k8s.pod.annotation.{{ .Values.annotationKey }}"] != "true"'
       {{- end }}
+      # always-on exclusions: known noisy apps we never want to ship. Matches pod-name
+      # prefix instead of k8s.deployment.name — that attr is only populated for
+      # Deployment-owned pods (delivery-db is a StatefulSet and would slip through).
+      filter/exclude_noisy:
+        error_mode: ignore
+        logs:
+          log_record:
+            - 'IsMatch(resource.attributes["k8s.pod.name"], "^delivery-dashboard-")'
+            # [0-9]+$ keeps 'delivery-db-backup-…' CronJob pods alive
+            - 'IsMatch(resource.attributes["k8s.pod.name"], "^delivery-db-[0-9]+$")'
+            # telemetry stack chatter — infra, not workload logs. Prefixes match the
+            # fullnameOverride pins in values.yaml; the collector itself is additionally
+            # excluded at the filelog path level (never even read from disk).
+            - 'IsMatch(resource.attributes["k8s.pod.name"], "^prometheus-operator-")'
+            - 'IsMatch(resource.attributes["k8s.pod.name"], "^kube-state-metrics-")'
+            - 'IsMatch(resource.attributes["k8s.pod.name"], "^{{ (index .Values "metrics-operator" "fullnameOverride") }}-")'
+            - 'IsMatch(resource.attributes["k8s.pod.name"], "^{{ (index .Values "opentelemetry-collector" "fullnameOverride") }}-")'
       batch:
         timeout: 5s
         send_batch_size: 1024
@@ -131,6 +148,7 @@ data:
             {{- if .Values.annotationKey }}
             - filter/only_annotated
             {{- end }}
+            - filter/exclude_noisy
             - batch
           exporters:
             {{- if eq .Values.backend "opensearch" }}
